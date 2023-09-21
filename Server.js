@@ -5,6 +5,8 @@ const mongoose = require('mongoose');
 const GenerateNumber = require('./routes/auth');
 const cors = require('cors');
 const multer = require('multer');
+const ChatRoom = require('./model/ChatRoom')
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 const http = require('http');
@@ -17,6 +19,13 @@ app.use(cors());
 
 // Parse JSON body
 app.use(express.json());
+
+//setting up cloudinary
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+})
 
 // MongoDB configuration (replace YOUR_MONGODB_URI with your actual MongoDB connection string)
 const DB = process.env.ATLAS_URI
@@ -32,59 +41,69 @@ mongoose.connect(DB, {
 const authRoutes = require('./routes/auth');
 app.use(authRoutes);
 
-// Define a ChatMessage schema
-const chatRoomSchema = new mongoose.Schema({
-    room: { type: String, required: true, unique: true },
-    messages: [{
-        sender: { type: String, required: true },
-        recipient: { type: String, required: true },
-        message: { type: String, required: true },
-        timestamp: { type: Date, default: Date.now },
-    }],
-});
-const ChatRoom = mongoose.model('ChatRoom', chatRoomSchema);
 
 let userCount = 0;
 
 io.on('connection', (socket) => {
-    userCount++; // Increment the user count when a user connects
-    console.log(`A user connected (Total users: ${userCount})`);
+    userCount++;
+
+    // Handle reconnections with a maximum delay of 10 seconds
+    socket.on('disconnect', () => {
+        setTimeout(() => {
+            if (socket.disconnected) {
+                userCount--;
+                console.log(`A user disconnected (Socket ID: ${socket.id}, Total users: ${userCount})`);
+            }
+        }, 10000);
+    });
+
+    // Log user connections only when a user actually connects
+    console.log(`A user connected (Socket ID: ${socket.id}, Total users: ${userCount})`);
 
     // Route for joining a private chat room
     socket.on('joinRoom', (data) => {
         const { sender, recipient } = data;
 
-        // Create a unique room name based on user IDs
-        const room = [sender, recipient].sort().join('-');
+        // Create unique room names for sender and recipient
+        const room1 = [sender, recipient].sort().join('-');
+        const room2 = [recipient, sender].sort().join('-');
 
-        // Join the private room
-        socket.join(room);
+        // Join both rooms
+        socket.join(room1);
+        socket.join(room2);
     });
 
-    // Route for sending a chat message
+    // Route for sending a chat message with file upload
     socket.on('send', async (data) => {
-        const { sender, recipient, message } = data;
-
+        const { sender, recipient, message, image } = data;
+        console.log('Received File URI:', image);
         try {
-            // Create a unique room name for this chat
-            const room = [sender, recipient].sort().join('-');
+            // Upload the file to Cloudinary
+            const result = await cloudinary.uploader.upload(image, { folder: 'chatImages' }); // Replace 'your-folder-name' with the desired folder name in Cloudinary);
 
-            // Find the chat room by room name
-            let chatRoom = await ChatRoom.findOne({ room });
+            // Create unique room names for sender and recipient
+            const room1 = [sender, recipient].sort().join('-');
+            const room2 = [recipient, sender].sort().join('-');
 
-            if (!chatRoom) {
-                // If the chat room does not exist, create a new one
-                chatRoom = new ChatRoom({ room, messages: [] });
+            // Check if the room already exists in the database
+            const existingRoom = await ChatRoom.findOne({ room: room1 });
+
+            if (!existingRoom) {
+                // If the room does not exist, create it and initialize with empty messages
+                const newChatRoom = new ChatRoom({ room: room1, messages: [] });
+                await newChatRoom.save();
             }
 
             // Append the new message to the messages array
-            chatRoom.messages.push({ sender, recipient, message });
-
             // Save the updated chat room
-            await chatRoom.save();
+            await Promise.all([
+                ChatRoom.findOneAndUpdate({ room: room1 }, { $push: { messages: { sender, recipient, message, image: result.secure_url } } }, { upsert: true }),
+                ChatRoom.findOneAndUpdate({ room: room2 }, { $push: { messages: { sender, recipient, message, image: result.secure_url } } }, { upsert: true }),
+            ]);
 
-            // Emit the message to all users in the room (sender and recipient)
-            io.to(room).emit('message', { sender, recipient, message });
+            // Emit the message to both rooms (sender and recipient)
+            io.to(room1).emit('message', { sender, recipient, message, image: result.secure_url });
+            io.to(room2).emit('message', { sender, recipient, message, image: result.secure_url });
         } catch (error) {
             console.error('Error saving message:', error);
         }
@@ -94,17 +113,17 @@ io.on('connection', (socket) => {
     socket.on('getMessages', async (data) => {
         const { sender, recipient } = data;
 
-        try {
-            // Create a unique room name for this chat
-            const room = [sender, recipient].sort().join('-');
+        // Create unique room name for the conversation
+        const room = [sender, recipient].sort().join('-');
 
+        try {
             // Find the chat room by room name and retrieve messages
             const chatRoom = await ChatRoom.findOne({ room });
 
             if (chatRoom) {
                 const messages = chatRoom.messages;
 
-                // Emit the retrieved messages to the client
+                // Emit the retrieved messages (including images) to the client in the same room
                 socket.emit('messages', messages);
             } else {
                 // If the chat room does not exist, emit an empty array
@@ -145,82 +164,14 @@ io.on('connection', (socket) => {
     });
 
 
+
     socket.on('disconnect', () => {
-        userCount--; // Decrement the user count when a user disconnects
-        console.log(`A user disconnected (Total users: ${userCount})`);
+        userCount--;
+        console.log(`A user disconnected (Socket ID: ${socket.id}, Total users: ${userCount})`);
     });
 });
 
 
-// io.on('connection', (socket) => {
-//     console.log('A user connected');
-//   // Route for joining a private chat room
-//   socket.on('joinRoom', (data) => {
-//     const { sender, recipient } = data;
-
-//     // Create a unique room name based on user IDs
-//     const room = [sender, recipient].sort().join('-');
-
-//     // Join the private room
-//     socket.join(room);
-// });
-
-// // Route for sending a chat message
-// socket.on('send', async (data) => {
-//     const { sender, recipient, message } = data;
-
-//     try {
-//         // Create a unique room name for this chat
-//         const room = [sender, recipient].sort().join('-');
-
-//         // Find the chat room by room name
-//         let chatRoom = await ChatRoom.findOne({ room });
-
-//         if (!chatRoom) {
-//             // If the chat room does not exist, create a new one
-//             chatRoom = new ChatRoom({ room, messages: [] });
-//         }
-
-//         // Append the new message to the messages array
-//         chatRoom.messages.push({ sender, recipient, message });
-
-//         // Save the updated chat room
-//         await chatRoom.save();
-
-//         // Emit the message to all users in the room (sender and recipient)
-//         io.to(room).emit('message', { sender, recipient, message });
-//     } catch (error) {
-//         console.error('Error saving message:', error);
-//     }
-// });
-
-// // Route for retrieving chat messages for a specific room
-// socket.on('getMessages', async (data) => {
-//     const { sender, recipient } = data;
-
-//     try {
-//         // Create a unique room name for this chat
-//         const room = [sender, recipient].sort().join('-');
-
-//         // Find the chat room by room name and retrieve messages
-//         const chatRoom = await ChatRoom.findOne({ room });
-
-//         if (chatRoom) {
-//             const messages = chatRoom.messages;
-
-//             // Emit the retrieved messages to the client
-//             socket.emit('messages', messages);
-//         } else {
-//             // If the chat room does not exist, emit an empty array
-//             socket.emit('messages', []);
-//         }
-//     } catch (error) {
-//         console.error('Error retrieving messages:', error);
-//     }
-// });
-
-
-// });
 
 // Start the server with Socket.io support
 const PORT = process.env.PORT || 5000;

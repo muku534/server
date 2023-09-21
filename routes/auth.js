@@ -9,6 +9,7 @@ const Authentication = require('../middleware/Authentication');
 
 const User = require('../model/UserDetails');
 const Contacts = require('../model/ContactList');
+const ChatRoom = require('../model/ChatRoom')
 
 const transporter = nodemailer.createTransport({
     service: 'Gmail',
@@ -161,6 +162,7 @@ router.post('/profile', async (req, res) => {
             existingProfile.name = name;
             existingProfile.bio = bio;
             existingProfile.email = email;
+            existingProfile.imageUrl = imageUrl; 
             // Add other fields if needed
 
             await existingProfile.save();
@@ -171,7 +173,8 @@ router.post('/profile', async (req, res) => {
                 randomNumber,
                 name,
                 bio,
-                email
+                email,
+                imageUrl, 
                 // Add other fields if needed
             });
 
@@ -285,6 +288,296 @@ router.get('/contacts', async (req, res) => {
         return res.status(500).json({ success: false, message: 'Failed to fetch contacts' });
     }
 });
+
+
+// router.get('/AllChatUsers', async (req, res) => {
+//     try {
+//         const { userId } = req.query;
+
+//         // Find all chat rooms where the user is either the sender or recipient
+//         const chatRooms = await ChatRoom.find({
+//             userId: userId,
+//             $or: [{ sender: userId }, { recipient: userId }]
+//         });
+//         console.log('userId', userId);
+
+//         if (!chatRooms || chatRooms.length === 0) {
+//             return res.status(404).json({
+//                 success: false,
+//                 message: "No chat rooms found for the user"
+//             });
+//         }
+
+//         // Initialize an array to store all unique user IDs
+//         const uniqueUserIds = [];
+
+//         // Iterate through the chat rooms and add user IDs to the array
+//         chatRooms.forEach((room) => {
+//             const [userId1, userId2] = room.room.split('-');
+//             // Add user IDs to the array, excluding the current user's ID
+//             if (userId1 !== userId) {
+//                 uniqueUserIds.push(userId1);
+//             }
+//             if (userId2 !== userId) {
+//                 uniqueUserIds.push(userId2);
+//             }
+//         });
+
+//         // Remove duplicates from the array
+//         const distinctUserIds = [...new Set(uniqueUserIds)];
+
+//         // Find user documents for all unique users
+//         const users = await User.find({ _id: { $in: distinctUserIds } });
+
+//         // Return the users in all chat rooms
+//         return res.status(200).json({
+//             success: true,
+//             chatRooms,
+//             users
+//         });
+
+//     } catch (error) {
+//         console.error('Error fetching AllChatUsers:', error);
+//         return res.status(500).json({ success: false, message: 'Failed to fetch AllChatUsers' });
+//     }
+// });
+
+// router.get('/AllChatUsers', async (req, res) => {
+//     try {
+//         const { userId } = req.query;
+
+//         console.log('Received userId:', userId); // Log the userId received in the query parameter
+
+//         // Check if userId is provided
+//         if (!userId) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: "userId is required as a query parameter"
+//             });
+//         }
+
+//         // Find all chat rooms where the user is either the sender or recipient
+//         const chatRooms = await ChatRoom.find({
+//             $or: [{ sender: userId }, { recipient: userId }]
+//         });
+
+//         console.log('Found chatRooms:', chatRooms); // Log the chat rooms found
+
+//         if (!chatRooms || chatRooms.length === 0) {
+//             return res.status(404).json({
+//                 success: false,
+//                 message: "No chat rooms found for the user"
+//             });
+//         }
+
+
+
+//         // Initialize an array to store all unique user IDs
+//         const uniqueUserIds = [];
+
+//         // Iterate through the chat rooms and add user IDs to the array
+//         chatRooms.forEach((room) => {
+//             const [userId1, userId2] = room.room.split('-');
+
+//             // Add user IDs to the array, excluding the current user's ID
+//             if (userId1 !== userId) {
+//                 uniqueUserIds.push(userId1);
+//             }
+//             if (userId2 !== userId) {
+//                 uniqueUserIds.push(userId2);
+//             }
+//         });
+
+//         // Remove duplicates from the array
+//         const distinctUserIds = [...new Set(uniqueUserIds)];
+
+//         // Find user documents for all unique users
+//         const users = await User.find({ _id: { $in: distinctUserIds } });
+
+//         // Return the users in all chat rooms
+//         return res.status(200).json({
+//             success: true,
+//             chatRooms,
+//             users
+//         });
+
+//     } catch (error) {
+//         console.error('Error fetching AllChatUsers:', error);
+//         return res.status(500).json({ success: false, message: 'Failed to fetch AllChatUsers' });
+//     }
+// });
+
+// router.get('/AllChatUsers', async (req, res) => {
+//     try {
+//         const { userId } = req.query;
+
+//         // Find chat rooms where the user is either the sender or recipient
+//         const chatRooms = await ChatRoom.find({
+//             $or: [{ sender: userId }, { recipient: userId }]
+//         });
+
+//         // Initialize an array to store all unique user IDs
+//         const uniqueUserIds = [];
+
+//         // Iterate through the chat rooms and add user IDs to the array
+//         chatRooms.forEach((room) => {
+//             const [userId1, userId2] = room.room.split('-');
+//             // Add user IDs to the array, excluding the current user's ID
+//             if (userId1 !== userId) {
+//                 uniqueUserIds.push(userId1);
+//             }
+//             if (userId2 !== userId) {
+//                 uniqueUserIds.push(userId2);
+//             }
+//         });
+
+//         // Remove duplicates from the array
+//         const distinctUserIds = [...new Set(uniqueUserIds)];
+
+//         // Find user documents for all unique users
+//         const users = await User.find({ _id: { $in: distinctUserIds } });
+
+//         if (chatRooms.length === 0) {
+//             // No chat rooms found for the user, but return user data if available
+//             return res.status(404).json({
+//                 success: false,
+//                 message: "No chat rooms found for the user",
+//                 users
+//             });
+//         }
+
+//         // Return the chat rooms and users
+//         return res.status(200).json({
+//             success: true,
+//             chatRooms,
+//             users
+//         });
+
+//     } catch (error) {
+//         console.error('Error fetching AllChatUsers:', error);
+//         return res.status(500).json({ success: false, message: 'Failed to fetch AllChatUsers' });
+//     }
+// });
+
+// router.get('/AllChatUsers', async (req, res) => {
+//     try {
+//         const { userId } = req.query;
+
+//         // Check if userId is provided
+//         if (!userId) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: "userId parameter is required"
+//             });
+//         }
+
+//         // Find chat rooms where the user is either the sender or recipient
+//         const chatRooms = await ChatRoom.find({
+//             $or: [{ room: userId }, { room: { $regex: `.*-${userId}$` } }]
+//         });
+
+//         if (chatRooms.length === 0) {
+//             // No chat rooms found for the user
+//             return res.status(404).json({
+//                 success: false,
+//                 message: "No chat rooms found for the user"
+//             });
+//         }
+
+//         // Initialize an array to store all unique user IDs from the chat rooms
+//         const uniqueUserIds = [userId]; // Include the requested user ID
+
+//         // Iterate through the chat rooms and add user IDs to the array
+//         chatRooms.forEach((room) => {
+//             const [userId1, userId2] = room.room.split('-');
+//             // Add user IDs to the array, excluding the current user's ID
+//             if (userId1 !== userId) {
+//                 uniqueUserIds.push(userId1);
+//             }
+//             if (userId2 !== userId) {
+//                 uniqueUserIds.push(userId2);
+//             }
+//         });
+
+//         // Remove duplicates from the array
+//         const distinctUserIds = [...new Set(uniqueUserIds)];
+
+//         // Find user documents for all unique users
+//         const users = await User.find({ _id: { $in: distinctUserIds } });
+
+//         // Return the chat rooms and all users who are part of those chat rooms
+//         return res.status(200).json({
+//             success: true,
+//             chatRooms,
+//             users
+//         });
+
+//     } catch (error) {
+//         console.error('Error fetching AllChatUsers:', error);
+//         return res.status(500).json({ success: false, message: 'Failed to fetch AllChatUsers' });
+//     }
+// });
+
+router.get('/AllChatRooms', async (req, res) => {
+    try {
+        const { userId } = req.query;
+
+        // Check if userId is provided
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: "userId parameter is required"
+            });
+        }
+
+        // Find all chat rooms where the user is either the sender or recipient
+        const chatRooms = await ChatRoom.find({
+            room: { $regex: userId }
+        });
+
+        if (chatRooms.length === 0) {
+            // No chat rooms found for the user
+            return res.status(404).json({
+                success: false,
+                message: "No chat rooms found for the user"
+            });
+        }
+
+        // Initialize an array to store all unique user IDs
+        const uniqueUserIds = [];
+
+        // Iterate through the chat rooms and add user IDs to the array
+        chatRooms.forEach((room) => {
+            const [userId1, userId2] = room.room.split('-');
+            // Add user IDs to the array, excluding the current user's ID
+            if (userId1 !== userId) {
+                uniqueUserIds.push(userId1);
+            }
+            if (userId2 !== userId) {
+                uniqueUserIds.push(userId2);
+            }
+        });
+        
+
+        // Remove duplicates from the array
+        const distinctUserIds = [...new Set(uniqueUserIds)];
+
+        // Find user documents for all unique users
+        const users = await User.find({ _id: { $in: distinctUserIds } });
+
+        // Return all matching chat rooms
+        return res.status(200).json({
+            success: true,
+            chatRooms,
+            users
+        });
+
+    } catch (error) {
+        console.error('Error fetching AllChatRooms:', error);
+        return res.status(500).json({ success: false, message: 'Failed to fetch AllChatRooms' });
+    }
+});
+
 
 
 

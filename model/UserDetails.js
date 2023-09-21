@@ -24,8 +24,14 @@ const UserDetailsScehma = new mongoose.Schema({
         required: false
     },
     profileImage: {
-        type: String,
-        required: false,
+        public_id: {
+            type: String,
+            required: false
+        },
+        url: {
+            type: String,
+            required:false
+        }
     },
     creactedAt: {
         type: Date,
