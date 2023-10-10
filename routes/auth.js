@@ -6,6 +6,7 @@ const multer = require('multer');
 const nodemailer = require('nodemailer');
 const randomstring = require('randomstring');
 const Authentication = require('../middleware/Authentication');
+const cloudinary = require('cloudinary').v2;
 
 const User = require('../model/UserDetails');
 const Contacts = require('../model/ContactList');
@@ -19,17 +20,17 @@ const transporter = nodemailer.createTransport({
     },
 });
 
+//setting up cloudinary
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+})
 
-// Define the storage for uploaded files
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, 'uploads/'); // Save files to the 'uploads' directory
-    },
-    filename: function (req, file, cb) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, file.fieldname + '-' + uniqueSuffix + '.' + file.mimetype.split('/')[1]);
-    },
-});
+// Initialize multer for file upload
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
+
 
 
 // POST request to save the generated number
@@ -45,6 +46,19 @@ router.post('/GenerateNumber', async (req, res) => {
     }
 });
 
+// Function to generate an FCM token for a user's device
+async function generateFcmToken(userId) {
+    try {
+        // Create a unique FCM registration token for the user's device
+        const registrationToken = await admin.messaging().createRegistrationToken(userId);
+
+        return registrationToken;
+    } catch (error) {
+        console.error('Error generating FCM token:', error);
+        throw error;
+    }
+}
+
 router.post('/signin', async (req, res) => {
     try {
         const { randomNumber } = req.body;
@@ -59,8 +73,13 @@ router.post('/signin', async (req, res) => {
                 charset: 'numeric',
             });
 
+
+            // Generate and store the recipientFcmToken (replace 'generateFcmToken' with your actual token generation logic)
+            const recipientFcmToken = await generateFcmToken(user._id);
+
             // Store OTP in the User collection
             user.otp = otp;
+            user.recipientFcmToken = recipientFcmToken; // Store recipientFcmToken here
             await user.save();
 
             // Send OTP via email
@@ -80,7 +99,9 @@ router.post('/signin', async (req, res) => {
 
                     // Generate JWT token and send it to the client
                     const token = jwt.sign({ phoneNumber: user.phoneNumber }, process.env.SECRET_KEY);
-                    return res.json({ success: true, token });
+
+                    // Include recipientFcmToken in the response
+                    return res.json({ success: true, token, recipientFcmToken });
                 }
             });
 
@@ -113,9 +134,12 @@ router.post('/verifyOTP', async (req, res) => {
                 // Save the updated user document
                 await user.save();
 
+                // Retrieve the recipientFcmToken
+                const recipientFcmToken = user.recipientFcmToken;
+
                 const userData = await User.findOne({ randomNumber })
 
-                return res.json({ success: true, message: 'verified', token, userData });
+                return res.json({ success: true, message: 'verified', token, userData, recipientFcmToken });
             } else {
                 // If OTP is incorrect, send a failure response
                 return res.json({ success: false, message: 'Invalid OTP' });
@@ -127,6 +151,26 @@ router.post('/verifyOTP', async (req, res) => {
     } catch (error) {
         console.error('Error during OTP verification:', error);
         return res.status(500).json({ success: false, message: 'OTP verification failed' });
+    }
+});
+
+// Define a new route to fetch FCM tokens
+router.post('/getFcmToken', async (req, res) => {
+    try {
+        const { recipientId } = req.body;
+
+        // Retrieve the FCM token for the recipient from your database
+        const recipient = await User.findOne({ _id: recipientId }); // Replace with your actual database query
+
+        if (recipient && recipient.recipientFcmToken) {
+            const fcmToken = recipient.recipientFcmToken;
+            res.json({ fcmToken });
+        } else {
+            res.status(404).json({ error: 'Recipient FCM token not found' });
+        }
+    } catch (error) {
+        console.error('Error fetching FCM token:', error);
+        res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -145,28 +189,42 @@ router.post("/logout", async (req, res) => {
 
 })
 
-// Create the multer middleware
-const upload = multer({ storage: storage });
-
-
-// POST request to save the user information 
-router.post('/profile', async (req, res) => {
+// Upload an image to Cloudinary and create/update the profile
+router.post('/profile', upload.single('image'), async (req, res) => {
     try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        // Convert the buffer data to a data URI
+        const dataUri = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+
+        // Define upload options including the folder
+        const uploadOptions = {
+            folder: 'avatar', // Specify the folder name in Cloudinary
+        };
+
+        // Upload the data URI to Cloudinary with the specified options
+        const cloudinaryResponse = await cloudinary.uploader.upload(dataUri, uploadOptions);
+
+        // Extract image URL from Cloudinary response
+        const imageUrl = cloudinaryResponse.secure_url;
+
         const { randomNumber, name, bio, email } = req.body;
 
         // Check if randomNumber exists in the database
-        const existingProfile = await User.findOne({ randomNumber });
+        const userData = await User.findOne({ randomNumber });
 
-        if (existingProfile) {
+        if (userData) {
             // Update existing profile
-            existingProfile.name = name;
-            existingProfile.bio = bio;
-            existingProfile.email = email;
-            existingProfile.imageUrl = imageUrl; 
+            userData.name = name;
+            userData.bio = bio;
+            userData.email = email;
+            userData.imageUrl = imageUrl;
             // Add other fields if needed
 
-            await existingProfile.save();
-            return res.json({ message: 'Profile updated successfully' });
+            await userData.save();
+            return res.json({ message: 'Profile updated successfully', userData });
         } else {
             // Create a new profile if randomNumber is not found
             const newProfile = new User({
@@ -174,18 +232,19 @@ router.post('/profile', async (req, res) => {
                 name,
                 bio,
                 email,
-                imageUrl, 
+                imageUrl,
                 // Add other fields if needed
             });
 
             await newProfile.save();
-            return res.json({ message: 'Profile created successfully' });
+            return res.json({ message: 'Profile created successfully', newProfile });
         }
     } catch (error) {
         console.error('Error saving profile:', error);
         return res.status(500).json({ message: 'Failed to save profile' });
     }
 });
+
 
 //POST request to add the new contacts 
 router.post('/AddContacts', async (req, res) => {
@@ -271,7 +330,7 @@ router.get('/contacts', async (req, res) => {
         // Find the Contacts document associated with the user's _id
         const contactList = await Contacts.findOne({ userId: user._id });
 
-        if (!contactList) {
+        if (!contactList || !contactList.Contacts || contactList.Contacts.length === 0) {
             return res.status(404).json({
                 success: false,
                 message: "No contacts found for this user"
@@ -557,7 +616,7 @@ router.get('/AllChatRooms', async (req, res) => {
                 uniqueUserIds.push(userId2);
             }
         });
-        
+
 
         // Remove duplicates from the array
         const distinctUserIds = [...new Set(uniqueUserIds)];
