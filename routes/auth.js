@@ -46,19 +46,6 @@ router.post('/GenerateNumber', async (req, res) => {
     }
 });
 
-// Function to generate an FCM token for a user's device
-async function generateFcmToken(userId) {
-    try {
-        // Create a unique FCM registration token for the user's device
-        const registrationToken = await admin.messaging().createRegistrationToken(userId);
-
-        return registrationToken;
-    } catch (error) {
-        console.error('Error generating FCM token:', error);
-        throw error;
-    }
-}
-
 router.post('/signin', async (req, res) => {
     try {
         const { randomNumber } = req.body;
@@ -73,13 +60,8 @@ router.post('/signin', async (req, res) => {
                 charset: 'numeric',
             });
 
-
-            // Generate and store the recipientFcmToken (replace 'generateFcmToken' with your actual token generation logic)
-            const recipientFcmToken = await generateFcmToken(user._id);
-
             // Store OTP in the User collection
             user.otp = otp;
-            user.recipientFcmToken = recipientFcmToken; // Store recipientFcmToken here
             await user.save();
 
             // Send OTP via email
@@ -99,9 +81,7 @@ router.post('/signin', async (req, res) => {
 
                     // Generate JWT token and send it to the client
                     const token = jwt.sign({ phoneNumber: user.phoneNumber }, process.env.SECRET_KEY);
-
-                    // Include recipientFcmToken in the response
-                    return res.json({ success: true, token, recipientFcmToken });
+                    return res.json({ success: true, token });
                 }
             });
 
@@ -134,12 +114,9 @@ router.post('/verifyOTP', async (req, res) => {
                 // Save the updated user document
                 await user.save();
 
-                // Retrieve the recipientFcmToken
-                const recipientFcmToken = user.recipientFcmToken;
-
                 const userData = await User.findOne({ randomNumber })
 
-                return res.json({ success: true, message: 'verified', token, userData, recipientFcmToken });
+                return res.json({ success: true, message: 'verified', token, userData });
             } else {
                 // If OTP is incorrect, send a failure response
                 return res.json({ success: false, message: 'Invalid OTP' });
@@ -154,25 +131,6 @@ router.post('/verifyOTP', async (req, res) => {
     }
 });
 
-// Define a new route to fetch FCM tokens
-router.post('/getFcmToken', async (req, res) => {
-    try {
-        const { recipientId } = req.body;
-
-        // Retrieve the FCM token for the recipient from your database
-        const recipient = await User.findOne({ _id: recipientId }); // Replace with your actual database query
-
-        if (recipient && recipient.recipientFcmToken) {
-            const fcmToken = recipient.recipientFcmToken;
-            res.json({ fcmToken });
-        } else {
-            res.status(404).json({ error: 'Recipient FCM token not found' });
-        }
-    } catch (error) {
-        console.error('Error fetching FCM token:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
-});
 
 //logout 
 router.post("/logout", async (req, res) => {
@@ -209,6 +167,7 @@ router.post('/profile', upload.single('image'), async (req, res) => {
 
         // Extract image URL from Cloudinary response
         const imageUrl = cloudinaryResponse.secure_url;
+        console.log(imageUrl)
 
         const { randomNumber, name, bio, email } = req.body;
 
@@ -261,12 +220,14 @@ router.post('/AddContacts', async (req, res) => {
 
                 // Get the userId of the user
                 const userId = contactUser._id;
+                const imageUrl = contactUser.imageUrl;
 
                 // Create a new contact object
                 const newContact = {
                     ContactUserId: user._id,
                     randomNumber,
                     contactName,
+                    imageUrl,
                 };
 
                 let contactlist = await Contacts.findOne({ userId });

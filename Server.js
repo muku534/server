@@ -78,9 +78,13 @@ io.on('connection', (socket) => {
         const { sender, recipient, message, image } = data;
         console.log('Received File URI:', image);
         try {
-            // Upload the file to Cloudinary
-            const result = await cloudinary.uploader.upload(image, { folder: 'chatImages' }); // Replace 'your-folder-name' with the desired folder name in Cloudinary);
+            let imageResult = null; // Initialize imageResult as null
 
+            // Check if an image is provided before uploading to Cloudinary
+            if (image) {
+                // Upload the file to Cloudinary
+                imageResult = await cloudinary.uploader.upload(image, { folder: 'chatImages' });
+            }
             // Create unique room names for sender and recipient
             const room1 = [sender, recipient].sort().join('-');
             const room2 = [recipient, sender].sort().join('-');
@@ -97,17 +101,20 @@ io.on('connection', (socket) => {
             // Append the new message to the messages array
             // Save the updated chat room
             await Promise.all([
-                ChatRoom.findOneAndUpdate({ room: room1 }, { $push: { messages: { sender, recipient, message, image: result.secure_url } } }, { upsert: true }),
-                ChatRoom.findOneAndUpdate({ room: room2 }, { $push: { messages: { sender, recipient, message, image: result.secure_url } } }, { upsert: true }),
+                ChatRoom.findOneAndUpdate({ room: room1 }, { $push: { messages: { sender, recipient, message, image: imageResult ? imageResult.secure_url : null } } }, { upsert: true }),
+                ChatRoom.findOneAndUpdate({ room: room2 }, { $push: { messages: { sender, recipient, message, image: imageResult ? imageResult.secure_url : null } } }, { upsert: true }),
             ]);
 
             // Emit the message to both rooms (sender and recipient)
-            io.to(room1).emit('message', { sender, recipient, message, image: result.secure_url });
-            io.to(room2).emit('message', { sender, recipient, message, image: result.secure_url });
+            io.to(room1).emit('message', { sender, recipient, message, image: imageResult ? imageResult.secure_url : null });
+            io.to(room2).emit('message', { sender, recipient, message, image: imageResult ? imageResult.secure_url : null });
+
+
         } catch (error) {
             console.error('Error saving message:', error);
         }
     });
+
 
     // Route for retrieving chat messages for a specific room
     socket.on('getMessages', async (data) => {
